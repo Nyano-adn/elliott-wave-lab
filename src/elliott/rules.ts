@@ -1,88 +1,75 @@
-// src/elliott/rules.ts
 import { WavePath, RuleResult } from './types';
 
-function isImpulseLabels(labels: string[]) {
-  const s = labels.join('');
-  return s.startsWith('123') || s === '12345';
+// Helpers
+const min = (a: number, b: number) => (a < b ? a : b);
+const max = (a: number, b: number) => (a > b ? a : b);
+
+function len(a: number, b: number) {
+  return Math.abs(b - a);
 }
 
 export function validateImpulse(path: WavePath): RuleResult[] {
-  const res: RuleResult[] = [];
-  if (path.kind !== 'impulse' || path.points.length < 3) {
-    return res;
-  }
-  const pts = path.points;
+  const R: RuleResult[] = [];
+  if (path.kind !== 'impulse' || path.points.length < 5) return R;
 
-  // R1: Wave 2 ne retrace pas 100% de 1
-  if (pts.length >= 3) {
-    const p0 = pts[0].p, p1 = pts[1].p, p2 = pts[2].p;
-    const bullish = p1 > p0;
-    const invalid = bullish ? p2 <= p0 : p2 >= p0;
-    res.push({
-      id: 'R1',
-      ok: !invalid,
-      severity: invalid ? 'error' : 'info',
-      message: '2 ne retrace pas 100% de 1',
-    });
-  }
+  const [p1,p2,p3,p4,p5] = path.points.map(p => p.p);
 
-  // R2: 3 n’est pas la plus courte (parmi 1,3,5 si disponibles)
-  if (pts.length >= 6) {
-    const p0 = pts[0].p, p1 = pts[1].p, p2 = pts[2].p, p3 = pts[3].p, p4 = pts[4].p, p5 = pts[5].p;
-    const len1 = Math.abs(p1 - p0);
-    const len3 = Math.abs(p3 - p2);
-    const len5 = Math.abs(p5 - p4);
-    const ok = !(len3 < Math.min(len1, len5));
-    res.push({
-      id: 'R2',
-      ok,
-      severity: ok ? 'info' : 'error',
-      message: '3 n’est pas la plus courte des impulsives (1,3,5)',
-    });
-  }
+  // Règle: 2 ne retrace pas plus que 100% de 1
+  R.push({
+    id: 'imp-2-not-exceed-1',
+    ok: !( (p2 - p1) * (p3 - p1) < 0 ) && Math.sign(p3 - p1) !== 0 // cohérence de tendance
+        ? len(p2, p1) < len(p3, p1)
+        : true,
+    message: 'Wave 2 ne doit pas retracer au‑delà de l’origine de 1',
+    severity: 'error',
+  });
 
-  // R3: 4 n’entre pas dans le territoire de 1 (impulsion standard)
-  if (pts.length >= 5) {
-    const p0 = pts[0].p, p1 = pts[1].p, p3 = pts[3].p, p4 = pts[4].p;
-    const bullish = p1 > p0;
-    const min1 = Math.min(p0, p1);
-    const max1 = Math.max(p0, p1);
-    const overlap = bullish ? (p4 < max1 && p4 > min1) : (p4 > min1 && p4 < max1);
-    res.push({
-      id: 'R3',
-      ok: !overlap,
-      severity: overlap ? 'warn' : 'info',
-      message: '4 n’entre pas dans le territoire de 1',
-    });
-  }
+  // Règle: 4 ne recoupe pas le territoire de 1 (version simple, tolérance)
+  const tol = (p1 + p3 + p5) * 0 + 0.0000001; // tolérance flottante
+  R.push({
+    id: 'imp-4-not-overlap-1',
+    ok: (Math.sign(p5 - p1) >= 0)
+      ? (min(p4, p5) > max(p1, p2) - tol)
+      : (max(p4, p5) < min(p1, p2) + tol),
+    message: 'Wave 4 ne doit pas chevaucher la zone de 1 (règle classique)',
+    severity: 'error',
+  });
 
-  // R4: Cohérence labels 1-5
-  const labels = path.labels;
-  if (labels?.length) {
-    const ok = isImpulseLabels(labels.map(String));
-    res.push({
-      id: 'R4',
-      ok,
-      severity: ok ? 'info' : 'warn',
-      message: 'Séquence labels cohérente (1-5)',
-    });
-  }
-  return res;
+  // Règle: 3 n’est pas la plus courte des impulsives (1,3,5)
+  const l1 = len(p1, p2);
+  const l3 = len(p2, p3);
+  const l5 = len(p4, p5);
+  R.push({
+    id: 'imp-3-not-shortest',
+    ok: !(l3 < Math.min(l1, l5)),
+    message: 'Wave 3 ne doit pas être la plus courte (1,3,5)',
+    severity: 'error',
+  });
+
+  // Guideline: alternance 2 vs 4 (simple/complexe) — heuristique via amplitude
+  const alt = Math.abs(len(p1, p2) - len(p3, p4)) > (0.1 * Math.max(len(p1,p2), len(p3,p4)));
+  R.push({
+    id: 'imp-alternation',
+    ok: alt,
+    message: 'Guideline: alternance entre 2 et 4 (amplitudes distinctes)',
+    severity: 'info',
+  });
+
+  return R;
 }
 
 export function validateCorrection(path: WavePath): RuleResult[] {
-  const res: RuleResult[] = [];
-  if (path.kind !== 'correction' || path.points.length < 3) return res;
-  // R5: A-B-C alternance basique (B à contre-tendance d’A, C dans le sens d’A)
-  const pA = path.points[0].p, pB = path.points[1].p, pC = path.points[2].p;
-  const dirA = Math.sign(pB - pA);
-  const dirC = Math.sign(pC - pB);
-  const ok = dirA !== 0 && dirC !== 0 && dirA === dirC;
-  res.push({
-    id: 'R5',
-    ok,
-    severity: ok ? 'info' : 'warn',
-    message: 'A-B-C: C dans le sens de A (contraste avec B)',
+  const R: RuleResult[] = [];
+  if (path.kind !== 'correction' || path.points.length < 3) return R;
+  const [a,b,c] = path.points.map(p => p.p);
+
+  // Guideline: B ne dépasse pas de beaucoup A (simple)
+  R.push({
+    id: 'corr-b-range',
+    ok: Math.abs(b - a) < 1.5 * Math.abs(c - a),
+    message: 'B ne devrait pas dépasser excessivement A (heuristique)',
+    severity: 'warn',
   });
-  return res;
+
+  return R;
 }
