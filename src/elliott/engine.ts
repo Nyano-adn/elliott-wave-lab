@@ -1,38 +1,24 @@
-// src/elliott/engine.ts
-import { Snapshot, WavePath, Point, WaveLabel } from './types';
+import { Snapshot, WavePath, UiState, DragHandle, Point } from './types';
 
-export function newWave(kind: WavePath['kind'], color: string): WavePath {
-  const now = Date.now();
-  return { id: crypto.randomUUID(), kind, points: [], labels: [], color, createdAt: now, updatedAt: now };
+export function clone<T>(x: T): T { return JSON.parse(JSON.stringify(x)); }
+
+export function selectWave(snap: Snapshot, waveId: string | null): Snapshot {
+  const next = clone(snap);
+  next.selectedWaveId = waveId;
+  next.ts = Date.now();
+  return next;
 }
 
-export function addPoint(w: WavePath, pt: Point, label?: WaveLabel): WavePath {
-  const nw = { ...w, points: [...w.points, pt], labels: [...w.labels] };
-  if (label) nw.labels.push(label);
-  nw.updatedAt = Date.now();
-  return nw;
+export function setPoint(path: WavePath, i: number, pt: Point) {
+  path.points[i] = pt;
+  path.updatedAt = Date.now();
 }
 
-export function replacePoint(w: WavePath, idx: number, pt: Point): WavePath {
-  const pts = w.points.slice(); pts[idx] = pt;
-  return { ...w, points: pts, updatedAt: Date.now() };
+export function applyDrag(snap: Snapshot, handle: DragHandle, pt: Point): Snapshot {
+  const next = clone(snap);
+  const w = next.waves.find(w => w.id === handle.waveId);
+  if (!w) return next;
+  setPoint(w, handle.pointIndex, pt);
+  next.ts = Date.now();
+  return next;
 }
-
-export function removeLastPoint(w: WavePath): WavePath {
-  if (!w.points.length) return w;
-  return { ...w, points: w.points.slice(0, -1), labels: w.labels.slice(0, -1), updatedAt: Date.now() };
-}
-
-export function serialize(waves: WavePath[]): string {
-  return JSON.stringify(waves);
-}
-export function deserialize(json: string): WavePath[] {
-  const raw = JSON.parse(json) as WavePath[];
-  return raw.map(w => ({ ...w, createdAt: w.createdAt ?? Date.now(), updatedAt: w.updatedAt ?? Date.now() }));
-}
-
-export function snapshot(waves: WavePath[]): Snapshot {
-  return { ts: Date.now(), waves: JSON.parse(JSON.stringify(waves)) };
-}
-
-export function restore(s: Snapshot): WavePath[] { return JSON.parse(JSON.stringify(s.waves)); }
