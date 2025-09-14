@@ -1,10 +1,9 @@
 // src/App.tsx
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { createChart, ISeriesApi, UTCTimestamp } from 'lightweight-charts'
+import { createChart, UTCTimestamp } from 'lightweight-charts'
 import WaveLayer from './components/WaveLayer'
 import FiboOverlay from './components/FiboOverlay'
 import Toolbar from './components/Toolbar'
-import { useWaves } from './store/waves'
 
 type Scales = {
   xScale: (t: number) => number | null
@@ -17,7 +16,7 @@ export default function App() {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const [scales, setScales] = useState<Scales | null>(null)
 
-  // Optionnel: jeu de données bidon
+  // Données de test stables
   const data = useMemo(() => {
     const now = Math.floor(Date.now() / 1000) as UTCTimestamp
     return Array.from({ length: 300 }, (_, i) => ({
@@ -51,14 +50,20 @@ export default function App() {
     const yScale = (p: number) => pScale.priceToCoordinate(p)
     const invX = (x: number) => {
       const v = tScale.coordinateToTime(x)
-      return typeof v === 'number' ? v : (v as any as number) // UTCTimestamp -> number
+      if (v == null) return null
+      if (typeof v === 'number') return v // UTCTimestamp (sec)
+      // BusinessDay → timestamp (sec)
+      const ts = Date.UTC(v.year, v.month - 1, v.day) / 1000
+      return ts as number
     }
     const invY = (y: number) => pScale.coordinateToPrice(y)
 
     setScales({ xScale, yScale, invX, invY })
 
-    const onResize = () => chart.applyOptions({}) // autoSize gère déjà; forcer reflow
-    const ro = new ResizeObserver(onResize)
+    // Optionnel: si tu veux forcer sur resize, utilise chart.resize
+    const ro = new ResizeObserver(() => {
+      chart.resize(root.clientWidth, root.clientHeight)
+    })
     ro.observe(root)
 
     return () => {
@@ -71,9 +76,13 @@ export default function App() {
     <div style={{ height: '100vh', width: '100vw', background: '#0b0f14' }}>
       <div
         ref={containerRef}
-        style={{ position: 'relative', height: '100%', width: '100%' }}
+        style={{
+          position: 'relative',
+          height: '100%',
+          width: '100%',
+          minHeight: 320
+        }}
       >
-        {/* Overlays par-dessus le chart */}
         {scales && (
           <>
             <FiboOverlay
@@ -81,7 +90,6 @@ export default function App() {
               yScale={scales.yScale}
               invX={scales.invX}
               invY={scales.invY}
-              // autres props si besoin (styles…)
               style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}
             />
             <WaveLayer
@@ -89,12 +97,9 @@ export default function App() {
               yScale={scales.yScale}
               invX={scales.invX}
               invY={scales.invY}
-              // WaveLayer gère les events: laisser pointerEvents par défaut
               style={{ position: 'absolute', inset: 0 }}
             />
-            <Toolbar
-              style={{ position: 'absolute', top: 12, right: 12, zIndex: 10 }}
-            />
+            <Toolbar style={{ position: 'absolute', top: 12, right: 12, zIndex: 10 }} />
           </>
         )}
       </div>
