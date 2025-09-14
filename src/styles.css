@@ -1,0 +1,6 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root { --panel: #151b2e; --bg: #0b1020; --accent: #4fd1c5; }
+html, body, #root { height: 100%; }
